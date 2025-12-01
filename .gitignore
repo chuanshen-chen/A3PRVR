@@ -1,0 +1,19 @@
+# dataset
+dataset/
+results*/
+checkpoints/
+*zip*/
+.vscode/
+__pycache__/
+tvr/
+*.hdf5
+*.npy
+*.pt
+*.pyc
+*.json
+# *.txt
+*.bin
+*.png
+*.jpg
+*.npy
+*.tar.gz
