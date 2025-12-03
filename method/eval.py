@@ -12,8 +12,7 @@ import torch
 from utils.basic_utils import BigFile
 from method.config import TestOptions
 from einops import rearrange
-import torch.nn.functional as F
-from graph_module.fast_kmeans import batch_fast_kmedoids
+
 import time
 logger = logging.getLogger(__name__)
 logging.basicConfig(format="%(asctime)s.%(msecs)03d:%(levelname)s:%(name)s - %(message)s",
@@ -122,60 +121,27 @@ def compute_context_info(model, eval_dataset, opt):
             metas_action.extend(video_ids)
             frame_video_feat__action = frame_flow_videos.to(opt.device) if opt.flow_feat else frame_video_feat_
             frame_mask__action = videos_flow_mask.to(opt.device) if opt.flow_feat else frame_mask_
-            if opt.clip_zero_shot:
-                _frame_feat_action = frame_video_feat__action
-            else:
-                _frame_feat_action  = model.encode_context(frame_video_feat__action, frame_mask__action, phrase_action_branch=phrase_action_branch)
-        if opt.qformer > 0:
-            video_mask = model.learnable_queries_mask.to(_frame_feat.device).repeat(_frame_feat.shape[0], 1)
-            
-            object_queries = model.learnable_object_queries.to(_frame_feat.device).repeat(_frame_feat.shape[0], 1, 1)
-            # object_queries, _ = model.qformer_selfa(object_queries, object_queries, video_mask, video_mask) #先过一层self attn
-            _frame_feat, _ = model.qformer_a(object_queries, _frame_feat,
-                                            video_mask, frame_mask_)
-            
-            action_queries = model.learnable_action_queries.to(_frame_feat_action.device).repeat(_frame_feat_action.shape[0], 1, 1)
-            # action_queries,_ = model.qformer_selfb(action_queries, action_queries,video_mask, video_mask)
-            _frame_feat_action, _ = model.qformer_b(action_queries, _frame_feat_action, video_mask, frame_mask__action)
-            frame_mask_ = video_mask
-            frame_mask__action = video_mask
+           
+            _frame_feat_action  = model.encode_context(frame_video_feat__action, frame_mask__action, phrase_action_branch=phrase_action_branch)
+        
         if opt.cross_branch_fusion:
             if model.config.deformable_attn:
                 # cross_encoded_frame_feat = self.cross_branch_fusion_A1(encoded_frame_feat.transpose(1,2), encoded_frame_feat_action.transpose(1,2).detach())
                 
                 if model.config.cross_attn_q == 'i3d_q':
-                    print(f"使用的是i3d_q")
                     cross_frame_feat = model.cross_branch_fusion_A1(_frame_feat.transpose(1,2), _frame_feat_action.transpose(1,2))
                     _frame_feat = cross_frame_feat.transpose(1,2)
                 elif model.config.cross_attn_q == 'clip_q':
-                    print(f"使用的是clip_q")
                     cross_frame_feat_action = model.cross_branch_fusion_A1(_frame_feat_action.transpose(1,2), _frame_feat.transpose(1,2))
                     _frame_feat_action = cross_frame_feat_action.transpose(1,2)
                 elif model.config.cross_attn_q == 'double_q':
-                    print(f"使用的是double_q")
                     cross_frame_feat = model.cross_branch_fusion_A1(_frame_feat.transpose(1,2), _frame_feat_action.transpose(1,2))
                     cross_frame_feat_action = model.cross_branch_fusion_B1(_frame_feat_action.transpose(1,2), _frame_feat.transpose(1,2))
                     _frame_feat = cross_frame_feat.transpose(1,2)
                     _frame_feat_action = cross_frame_feat_action.transpose(1,2)
             else:
                 cross_frame_feat, attn = model.cross_branch_fusion_A1(_frame_feat, _frame_feat_action, frame_mask_, frame_mask__action)
-                if 0:
-                    print(attn.shape)
-                    print(len(video_ids))
-                    attn_save = attn.cpu().numpy()
-                    version = '2505140100'
-                    np.save(f'/share/home/chenyaofo/project/chenchuanshen/ms-sl_gt-main/q-dta_visual/attn_global_attn_{version}.npy', attn_save)
-                    with open(f'/share/home/chenyaofo/project/chenchuanshen/ms-sl_gt-main/q-dta_visual/attn_global_attn_{version}.txt', 'w') as f:
-                        for video_id in video_ids:
-                            f.write(f"{video_id}\n")  # 写入video_id并添加换行符
-                    exit()
                 _frame_feat = cross_frame_feat
-            # cross_frame_feat_action, _ = model.cross_branch_fusion_B1(_frame_feat_action, _frame_feat, frame_mask__action, frame_mask_)
-            
-            # _frame_feat_action = cross_frame_feat_action
-        
-        # _frame_feat = model.encode_context_2(_frame_feat, frame_mask_)
-        # _frame_feat_action = model.encode_context_2(_frame_feat_action, frame_mask__action, phrase_action_branch=True)
         
         frame_feat.append(_frame_feat.cpu())
         frame_mask.append(frame_mask_.cpu())
@@ -252,9 +218,7 @@ def compute_query2ctx_info(model, eval_dataset, opt, ctx_info, phrase_action_bra
         video_feat = ctx_info["video_feat"]
         video_mask = ctx_info["video_mask"]
         
-        _clip_scale_scores  = model.get_pred_from_raw_query(
-            zero_shot_captions_tensor if opt.clip_zero_shot and phrase_action_branch else query_feat,
-            query_mask, None, video_feat, video_mask, phrase_action_branch=phrase_action_branch, zeroshot_match=opt.clip_zero_shot and phrase_action_branch)
+        _clip_scale_scores  = model.get_pred_from_raw_query( query_feat, query_mask, None, video_feat, video_mask, phrase_action_branch=phrase_action_branch)
         
         _clip_scale_scores= _clip_scale_scores.cpu() # , _frame_scale_scores, attn_weight _frame_scale_scores.cpu(), attn_weight.cpu()
         _score_sum = _clip_scale_scores
@@ -317,10 +281,8 @@ def eval_epoch(model, val_video_dataset, val_text_dataset, opt, epoch=-1):
     
     t2v_gt = {}
     for i in range(len(gt_video_indices_list)):
-        if opt.cal_only3part:
-            t2v_gt[i] = [0]
-        else:
-            t2v_gt[i] = [gt_video_indices_list[i].item()]
+        
+        t2v_gt[i] = [gt_video_indices_list[i].item()]
     
     print('score_sum:')
     t2v_r1, t2v_r5, t2v_r10, t2v_r100, t2v_medr, t2v_meanr, t2v_map_score, gt_ranks = cal_perf(-1 * score_sum, t2v_gt)
@@ -329,33 +291,7 @@ def eval_epoch(model, val_video_dataset, val_text_dataset, opt, epoch=-1):
         t2v_r1, t2v_r5, t2v_r10, t2v_r100, t2v_medr, t2v_meanr, t2v_map_score, gt_ranks = cal_perf(-1 * score_sum_action, t2v_gt)
     if opt.phrase_action_branch:
         t2v_r1, t2v_r5, t2v_r10, t2v_r100, t2v_medr, t2v_meanr, t2v_map_score, gt_ranks = cal_perf(-1 * ((1 - opt.fusion_weight) * score_sum_action + opt.fusion_weight * score_sum), t2v_gt)
-    if 0:
-    #####下面代码是用于2025iccv rebuttal可视化 qdta和cross attn的差距对比的
-        print(len(query_metas))
-        target_strings = ['1F4JZ', '2B577', '2z8G8', '7V4NJ', '9EEGQ', '21WN7']
-        # 1. 先获取每个字符串的所有匹配索引（存入字典）
-        string_indices = {s: [i for i, item in enumerate(query_metas) if item == s] for s in target_strings}
-
-        # 2. 遍历字典，输出每个字符串对应的 gt_ranks 值
-        for s, indices in string_indices.items():
-            if not indices:  # 处理无匹配的情况（可选）
-                print(f"字符串 '{s}' 无匹配索引，gt_ranks 对应值为空")
-                continue
-            for one_index in indices:
-                # 获取 gt_ranks 中的对应值（支持 numpy 数组或列表）
-                gt_values = gt_ranks[one_index]
-                print(f"字符串 '{s}' 的索引：{one_index}  对应的raw cap id是:{query_metas_raw[one_index]}  对应的排名是:{gt_values}")
-        import pdb
-        pdb.set_trace()
-    if 0:
-        top1_rank = np.argsort(-1 * score_sum, axis=1)
-        total_attn_weight_list = torch.cat(total_attn_weight_list)
-        top1_attn_weight = total_attn_weight_list[torch.arange(top1_rank.shape[0]), top1_rank[:,0]]
-        top1_video_id = [context_info['video_metas'][top1_rank[i,0]] for i in range(len(query_metas))]
-        import json
-        with open(os.path.join('/mnt/cephfs/home/chenchuanshen/ms-sl_gt/ms-sl/activitynet/visual_data/', 'top1_video_id.json'), 'w') as file:
-            json.dump(top1_video_id, file, indent=2)
-        np.save( '/mnt/cephfs/home/chenchuanshen/ms-sl_gt/ms-sl/activitynet/visual_data/top1_attn_weight', top1_attn_weight)
+   
     currscore = 0
     currscore += (t2v_r1 + t2v_r5 + t2v_r10 + t2v_r100)
 
@@ -386,12 +322,7 @@ def start_inference(opt=None, epoch=-1):
         opt = TestOptions().parse()
     cudnn.benchmark = False
     cudnn.deterministic = True
-    
-    ########eval的时候专用
-    
-    # opt.cal_only3part = True #如果要计算3part，query bsz得先设置为1
-    # opt.replace_key_clip = True
-    # opt.global_video_loss = True
+
     rootpath = opt.root_path
     collection = opt.collection
     testCollection = '%stest' % collection
@@ -403,8 +334,7 @@ def start_inference(opt=None, epoch=-1):
                      for x in cap_file}
 
     text_feat_path = os.path.join(rootpath, collection, 'TextData', 'roberta_%s_query_feat.hdf5' % collection)
-    # Load visual features
-    # caption_files['test'] = '/mnt/cephfs/home/chenchuanshen/ms-sl_gt/ms-sl/activitynet/TextData/activitynettest.caption_debug.txt'
+   
     test_video_ids_list = read_video_ids(caption_files['test'])
     
     test_vid_dataset = VisDataSet4MS_SL(opt, video_ids=test_video_ids_list)

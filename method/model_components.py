@@ -2,52 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from vim_block import create_block
-def _get_atm_loss(
-        text_feat,
-        v_feat_cat,
-    ):
 
-        sim_t2q = torch.matmul(
-            F.normalize(text_feat, dim=-1),
-            F.normalize(v_feat_cat, dim=-1).transpose(0,1),
-        ) #bsz 384 * bsz*2 384
-
-        bs = sim_t2q.shape[0]
-
-        bsz = torch.arange(bs, device=sim_t2q.device).unsqueeze(-1)
-        bsz_reverse = bsz + bs
-        pair = torch.cat((bsz, bsz_reverse), dim=-1)
-        logits = sim_t2q[bsz, pair] / 0.07
-        targets = torch.zeros(logits.shape[0],dtype=int).to(logits.device)
-        loss_atm= F.cross_entropy(logits, targets, label_smoothing=0.1)
-        return loss_atm
-    
-def _get_contrastive_loss(
-        video_feat, 
-        # text_feat, 
-        # video_feat_all, 
-        text_feat_all, 
-    ):
-
-        sim_v2t = torch.matmul(
-            F.normalize(video_feat, dim=-1), # (batch_size,  latent_dim)  
-            F.normalize(text_feat_all, dim=-1).transpose(0,1),  # (batch_size*2 latent_dim)
-        ) 
-
-        bs = video_feat.shape[0]
-
-        bsz = torch.arange(bs, device=sim_v2t.device).unsqueeze(-1)
-        bsz_reverse = bsz + bs
-        pair = torch.cat((bsz, bsz_reverse), dim=-1)
-        logits = sim_v2t[bsz, pair] / 0.07
-        targets = torch.zeros(logits.shape[0],dtype=int).to(logits.device)
-        loss_vac= F.cross_entropy(logits, targets, label_smoothing=0.1)
-
-        return loss_vac
-        
-
-        
 class MultiheadAttn(nn.Module):
     def __init__(self, dim, nhead, dropout=0.1, ret_att=False):
         super().__init__()
@@ -420,45 +375,19 @@ class BertLayer(nn.Module):
 class BertAttention(nn.Module):
     def __init__(self, config):
         super(BertAttention, self).__init__()
-        if config.mamba > 0:
-            self.mamba_list = nn.ModuleList()
-            for i in range(config.mamba):
-                self.mamba_list.append(create_block(
-                    d_model=384,
-                    ssm_cfg=None,
-                    norm_epsilon=1e-05,
-                    rms_norm=True,
-                    residual_in_fp32=True,
-                    fused_add_norm=True,
-                    layer_idx=0,
-                    if_bimamba=False,
-                    bimamba_type=None,
-                    drop_path=0.0,
-                    if_devide_out=True,
-                    init_layer_scale=None,
-                    # **factory_kwargs,
-                ))
-        else:
-            self.self = BertSelfAttention(config)
-        # self.self = BertSelfAttention(config)
+       
+        self.self = BertSelfAttention(config)
         self.output = BertSelfOutput(config)
-        self.mamba = config.mamba
+       
     def forward(self, input_tensor, attention_mask=None):
         """
         Args:
             input_tensor: (N, L, D)
             attention_mask: (N, L)
         """
-        if self.mamba > 0:
-            residual = None
-            mamba_output = input_tensor
-            for i in range(self.mamba):
-                mamba_output, residual = self.mamba_list[i](mamba_output, residual)
-            attention_output = self.output(mamba_output, input_tensor)
-            return attention_output
-        else:
-            self_output = self.self(input_tensor, input_tensor, input_tensor, attention_mask)
-            attention_output = self.output(self_output, input_tensor)
+       
+        self_output = self.self(input_tensor, input_tensor, input_tensor, attention_mask)
+        attention_output = self.output(self_output, input_tensor)
         return attention_output
 
 

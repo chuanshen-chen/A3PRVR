@@ -7,10 +7,7 @@ import h5py
 import random
 import math
 import os
-from transformers import RobertaTokenizer, RobertaModel
 import time
-# import torch.multiprocessing as mp
-# mp.set_start_method('spawn', force=True)
 
 def read_json(file_path):
     """
@@ -72,11 +69,6 @@ def uniform_feature_sampling_wrong(features, max_len):
     idxs = np.arange(0, max_len + 1, 1.0) / max_len * num_clips
     idxs = np.round(idxs).astype(np.int32)
     idxs[idxs > num_clips - 1] = num_clips - 1
-    # 计算采样索引
-    # idxs = np.linspace(0, num_clips - 1, max_len + 1, dtype=np.int32)
-
-    # 使用列表推导和预先计算的区间来计算平均值
-    #start和end如果相等就会出错
     new_features = np.array([np.mean(features[start:end], axis=0)for start, end in zip(idxs[:-1], idxs[1:])])
 
     return new_features
@@ -133,7 +125,6 @@ def collate_train(data):
     if data[0][1] is not None:
         data.sort(key=lambda x: len(x[1]), reverse=True) 
     
-    # frame_video_features, captions, idxs, cap_ids, video_ids, frame_flow_video_features, neg_captions = zip(*data) 
     frame_video_features, captions, idxs, cap_ids, video_ids, frame_flow_video_features, final_neg_inputs = zip(*data) 
 
     #######################
@@ -179,36 +170,7 @@ def collate_train(data):
         end = all_lengths[index]
         target[index, :end, :] = cap[:end, :]
         words_mask[index, :end] = 1.0
-    # print(f"all_lengths_neg : {len(all_lengths_neg)} len(merge_captions_neg): {len(merge_captions_neg)} max(all_lengths_neg):{max(all_lengths_neg)}")
-
-    # if not is_tensor_with_single_dimension(neg_captions[0][0]):
-    #     all_lengths_neg = []
-    #     merge_captions_neg = []
-    #     for index, caps in enumerate(neg_captions): #caps 是多个list
-    #         # print(f"neg_captions:{len(neg_captions)} | len(caps):{len(caps)}")
-    #         for cap in caps: #cap是单个query的负样本list
-    #             all_lengths_neg.extend(len(c) for c in cap) #c是一个tensor 代表的是一句话 n * dim
-    #             merge_captions_neg.extend(c for c in cap) #c是一个tensor
-                
-        
-    #     target_neg = torch.zeros(len(all_lengths_neg), max(all_lengths_neg), feat_dim)
-    #     words_mask_neg = torch.zeros(len(all_lengths_neg), max(all_lengths_neg))
-        
-    #     for index, cap in enumerate(merge_captions_neg):
-    #         # print(f"cap shape: {cap.shape}")
-    #         # print(f"target_neg[index, :end, :] shape: {target_neg[index, :end, :].shape}")
-    #         end = all_lengths_neg[index]
-    #         target_neg[index, :end, :] = cap[:end, :]
-    #         words_mask_neg[index, :end] = 1.0
-    #     # print(f"all_lengths_neg:{all_lengths_neg} | all_lengths:{all_lengths}")
-    #     neg_num = int(len(all_lengths_neg) / len(all_lengths))
-    #     # print(f"target_neg.shape[0]:{target_neg.shape[0]} | neg_num:{neg_num}")
-    #     target_neg = target_neg.reshape(target_neg.shape[0]//neg_num, neg_num, target_neg.shape[1], -1)
-    #     words_mask_neg = words_mask_neg.reshape(words_mask_neg.shape[0]//neg_num, neg_num, words_mask_neg.shape[1])
-    # else:
-    #     target_neg = torch.tensor([0.0])
-    #     words_mask_neg = torch.tensor([0.0])
-    # print(f"frame_videos:{frame_videos.shape}  ||   text:{target.shape} || final_neg_inputs:{len(final_neg_inputs)}")
+    
     cat_final_neg_inputs = []
     for i in range(len(final_neg_inputs)): #有多少个video 
         for j in range(len(final_neg_inputs[i])): #每一个video 有多少个 caption
@@ -312,31 +274,28 @@ class Dataset4MS_SL(data.Dataset):
         if opt.dset_name =='activitynet':
             self.video_feat_path = 'dataset/activitynet_i3d/FeatureData/anet_clip_i3d_numpy.hdf5'
             
-            caption_path = 'dataset/activitynet_i3d/TextData/activitynettrain.caption.txt'
             self.video_flow_feat_path = "dataset/activitynet_clip/FeatureData/new_clip_vit_32_activitynet_vid_features.hdf5"
-            self.action_list = read_json('/share/home/chenyaofo/project/chenchuanshen/ms-sl_gt-main/dataset/activitynet_i3d/TextData/anet_total_action_dict.json') #整个数据集的所有动词
-            self.object_list = read_json('/share/home/chenyaofo/project/chenchuanshen/ms-sl_gt-main/dataset/activitynet_i3d/TextData/anet_total_object_dict.json') #整个数据集的所有动词
-            # self.action_list = read_json('/share/home/chenyaofo/project/chenchuanshen/ms-sl_gt-main/dataset/activitynet_i3d/TextData/anet_total_action_dict_top20.json') #整个数据集的所有动词
-            # self.object_list = read_json('/share/home/chenyaofo/project/chenchuanshen/ms-sl_gt-main/dataset/activitynet_i3d/TextData/anet_total_object_dict_top20.json') #整个数据集的所有动词
-            self.verb_dict = read_json('/share/home/chenyaofo/project/chenchuanshen/ms-sl_gt-main/dataset/activitynet_i3d/TextData/anet_id_action_dict.json')
-            self.object_dict = read_json('/share/home/chenyaofo/project/chenchuanshen/ms-sl_gt-main/dataset/activitynet_i3d/TextData/anet_id_object_dict.json')
+            self.action_list = read_json('./dataset/activitynet_i3d/TextData/anet_total_action_dict.json') 
+            self.object_list = read_json('./dataset/activitynet_i3d/TextData/anet_total_object_dict.json') 
+          
+            self.verb_dict = read_json('./dataset/activitynet_i3d/TextData/anet_id_action_dict.json')
+            self.object_dict = read_json('./dataset/activitynet_i3d/TextData/anet_id_object_dict.json')
         elif opt.dset_name =='tvr':
             
             self.video_feat_path = "dataset/tvr_i3d/FeatureData/tvr_clip_i3d_numpy.hdf5"
-            # self.video_flow_feat_path = "dataset/tvr_clip/FeatureData/new_clip_vit_32_tvr_vid_features.hdf5"
             
-            self.action_list = read_json('/share/home/chenyaofo/project/chenchuanshen/ms-sl_gt-main/dataset/tvr_i3d/TextData/tvr_total_action_dict.json') #整个数据集的所有动词
-            self.object_list = read_json('/share/home/chenyaofo/project/chenchuanshen/ms-sl_gt-main/dataset/tvr_i3d/TextData/tvr_total_object_dict.json') #整个数据集的所有动词
+            self.action_list = read_json('./dataset/tvr_i3d/TextData/tvr_total_action_dict.json') 
+            self.object_list = read_json('./dataset/tvr_i3d/TextData/tvr_total_object_dict.json') 
            
-            self.verb_dict = read_json('/share/home/chenyaofo/project/chenchuanshen/ms-sl_gt-main/dataset/tvr_i3d/TextData/tvr_id_action_dict.json')
-            self.object_dict = read_json('/share/home/chenyaofo/project/chenchuanshen/ms-sl_gt-main/dataset/tvr_i3d/TextData/tvr_id_object_dict.json')
+            self.verb_dict = read_json('./dataset/tvr_i3d/TextData/tvr_id_action_dict.json')
+            self.object_dict = read_json('./dataset/tvr_i3d/TextData/tvr_id_object_dict.json')
         elif opt.dset_name =='charades':
             self.video_feat_path = 'dataset/charades_i3d/FeatureData/charades_clip_i3d_numpy.hdf5'
-            self.action_list = read_json('/share/home/chenyaofo/project/chenchuanshen/ms-sl_gt-main/dataset/charades_i3d/TextData/charades_total_action_dict.json') #整个数据集的所有动词
-            self.object_list = read_json('/share/home/chenyaofo/project/chenchuanshen/ms-sl_gt-main/dataset/charades_i3d/TextData/charades_total_object_dict.json') #整个数据集的所有动词
+            self.action_list = read_json('./dataset/charades_i3d/TextData/charades_total_action_dict.json')
+            self.object_list = read_json('./dataset/charades_i3d/TextData/charades_total_object_dict.json') 
            
-            self.verb_dict = read_json('/share/home/chenyaofo/project/chenchuanshen/ms-sl_gt-main/dataset/charades_i3d/TextData/charades_id_action_dict.json')
-            self.object_dict = read_json('/share/home/chenyaofo/project/chenchuanshen/ms-sl_gt-main/dataset/charades_i3d/TextData/charades_id_object_dict.json')
+            self.verb_dict = read_json('./dataset/charades_i3d/TextData/charades_id_action_dict.json')
+            self.object_dict = read_json('./dataset/charades_i3d/TextData/charades_id_object_dict.json')
             
         self.video_feat_file = h5py.File(self.video_feat_path, 'r')
         self.query_feat_file = h5py.File(self.text_feat_path, 'r')
@@ -354,10 +313,7 @@ class Dataset4MS_SL(data.Dataset):
         else:
             self.action_neg_feat = False
             self.object_neg_feat = False
-        # self.roberta_tokenizer = RobertaTokenizer.from_pretrained('roberta-large')
-
-        # self.tensor_path = f'/share/home/chenyaofo/project/chenchuanshen/ms-sl_gt-main/dataset/{self.config.dataset_name}_i3d/FeatureData/i3d/tensorfiles'
-
+       
     def replace_verbs(self, sentence, verbs, action_list_tag, neg_num):
         new_sentences = []
         
@@ -380,7 +336,7 @@ class Dataset4MS_SL(data.Dataset):
                         new_verbs.append(add_verb[0])
                         break
             new_sentences.extend([sentence.replace(key, new_verb) for new_verb in new_verbs])
-            # new_sentences.extend([sentence for new_verb in new_verbs])
+          
         if cha > 0:
             new_verbs = random.sample(action_list_tag[special], cha)
             if key in new_verbs:
@@ -394,7 +350,7 @@ class Dataset4MS_SL(data.Dataset):
         return new_sentences
 
     def __getitem__(self, index):
-        start_time = time.time()
+      
         video_id = self.video_ids[index]
         cap_ids = self.vid_caps[video_id]
 
@@ -404,8 +360,7 @@ class Dataset4MS_SL(data.Dataset):
 
             flow_feat = uniform_feature_sampling(self.video_feat_file[video_id]['clip_feat'][...], self.max_ctx_len)
             flow_feat = torch.from_numpy(l2_normalize_np_array(flow_feat))
-        # print(f'获取单个视频的视频特征时间是:{time.time() - start_time}')
-        start_time = time.time()
+
         cap_tensors = []
         final_neg_inputs = []
         for cap_id in cap_ids:
@@ -415,7 +370,7 @@ class Dataset4MS_SL(data.Dataset):
             if self.action_neg_feat or self.object_neg_feat: #要使用action
                 ok = 0
                 valid_neg_action, valid_neg_object = [], []
-                start_time = time.time()
+                
                 if 'NNP' in self.verb_dict[cap_id].values():
                     self.verb_dict[cap_id] = {key: value for key, value in self.verb_dict[cap_id].items() if value != 'NNP'}
                 if len(self.verb_dict[cap_id]) == 0 or not self.action_neg_feat: #说明该句子中没有发生替换  或者不适用action
@@ -435,18 +390,17 @@ class Dataset4MS_SL(data.Dataset):
                     neg_samples_object = self.replace_verbs(sentence, object_in_sentences, self.object_list, self.config.neg_object_num)
 
                 neg_samples = neg_samples_action + neg_samples_object
-                # neg_inputs = self.roberta_tokenizer(neg_samples, padding=True, return_tensors="pt")
+               
 
                 final_neg_inputs.append(neg_samples)
-                # if padding_neg_action is not None:
-                #     neg_cap_feats.extend(padding_neg_action)
+              
             else:
                 final_neg_inputs.append(['Hello'])
 
             cap_tensor = torch.from_numpy(l2_normalize_np_array(cap_feat))[:self.max_desc_len]
             cap_tensors.append(cap_tensor)
-        # print(f'获取captions的时间是:{time.time() - start_time}')
-        return frame_video_feature, cap_tensors, index, cap_ids, video_id, flow_feat, final_neg_inputs #neg_cap_tensors 
+       
+        return frame_video_feature, cap_tensors, index, cap_ids, video_id, flow_feat, final_neg_inputs
     
     def __len__(self):
         return self.length
@@ -462,21 +416,16 @@ class VisDataSet4MS_SL(data.Dataset):
         
         self.config = opt
         if opt.dset_name =='activitynet':
-            # self.video_feat_path = "dataset/activitynet_clip/FeatureData/i3d/feature.bin"
-            # self.video_flow_feat_path = "dataset/activitynet_i3d/TextData/clip_npy_total"
+            
             self.video_feat_path = 'dataset/activitynet_i3d/FeatureData/anet_clip_i3d_numpy.hdf5'
         elif opt.dset_name =='tvr':
-            # self.video_feat_path = "dataset/tvr_i3d/FeatureData/i3d/feature.bin"
-            # self.video_flow_feat_path = "dataset/tvr_clip/FeatureData/new_clip_vit_32_tvr_vid_features.hdf5"
+            
             self.video_feat_path = 'dataset/tvr_i3d/FeatureData/tvr_clip_i3d_numpy.hdf5'
             
         elif opt.dset_name =='charades':
             self.video_feat_path = 'dataset/charades_i3d/FeatureData/charades_clip_i3d_numpy.hdf5'
         self.video_feat_file = h5py.File(self.video_feat_path, 'r')
-            # self.video_flow_feat_path = "/share/home/chenyaofo/project/chenchuanshen/ms-sl_gt-main/dataset/charades_i3d/TextData/chatgpt4o_object.hdf5"
-        # if 1 or not self.config.debug_mode:
-        #     self.video_flow_feat = h5py.File(self.video_flow_feat_path, 'r')
-        # self.video_feat = np.fromfile(self.video_feat_path, dtype=np.float32)
+         
             
     def __getitem__(self, index):
         video_id = self.video_ids[index]
@@ -520,7 +469,6 @@ class TxtDataSet4MS_SL(data.Dataset):
         self.length = len(self.cap_ids)
 
         self.map_size = opt.map_size
-        self.clip_zero_shot = opt.clip_zero_shot
     
         self.text_feat = h5py.File(self.text_feat_path, 'r')
     def __getitem__(self, index):

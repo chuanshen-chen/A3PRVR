@@ -42,15 +42,11 @@ class MS_SL_Net(nn.Module):
     def __init__(self, config):
         super(MS_SL_Net, self).__init__()
         self.config = config
-        if self.config.mamba > 0:
-            self.query_encoder = BertAttention(edict(mamba=config.mamba, hidden_size=config.hidden_size, intermediate_size=config.hidden_size,
-                                                    hidden_dropout_prob=config.drop, num_attention_heads=config.n_heads,
-                                                    attention_probs_dropout_prob=config.drop))
-        else:
-            self.query_encoder = BertAttention(edict(mamba=config.mamba, hidden_size=config.hidden_size, intermediate_size=config.hidden_size,
-                                                    hidden_dropout_prob=config.drop, num_attention_heads=config.n_heads,
-                                                    attention_probs_dropout_prob=config.drop))
-            
+       
+        self.query_encoder = BertAttention(edict(hidden_size=config.hidden_size, intermediate_size=config.hidden_size,
+                                                hidden_dropout_prob=config.drop, num_attention_heads=config.n_heads,
+                                                attention_probs_dropout_prob=config.drop))
+        
         self.query_pos_embed = TrainablePositionalEncoding(max_position_embeddings=config.max_desc_l,
                                                            hidden_size=config.hidden_size, dropout=config.input_drop)
         self.query_input_proj = LinearLayer(config.q_feat_size, config.hidden_size, layer_norm=True,
@@ -70,58 +66,26 @@ class MS_SL_Net(nn.Module):
         self.frame_pos_embed = TrainablePositionalEncoding(max_position_embeddings=config.max_ctx_l,
                                                           hidden_size=config.hidden_size, dropout=config.input_drop)
         
-        # self.frame_pos_embed_2 = TrainablePositionalEncoding(max_position_embeddings=config.max_ctx_l,
-        #                                                   hidden_size=config.hidden_size, dropout=config.input_drop)
-        # self.frame_input_proj_2 = LinearLayer(config.hidden_size, config.hidden_size, layer_norm=True,
-        #                                      dropout=config.input_drop, relu=True)
-        # self.frame_encoder_2 = copy.deepcopy(self.query_encoder)
-        
-        #
         
         if self.config.cross_branch_fusion:
             #nn.ModuleList
             self.cross_branch_fusion_SA = TransformerFilter(config.hidden_size, 4, dim_feedforward=2048, dropout=0.05, ret_att=False)
             self.cross_branch_fusion_SB = TransformerFilter(config.hidden_size, 4, dim_feedforward=2048, dropout=0.05, ret_att=False)
             if self.config.deformable_attn:
-                if self.config.deformable_key == 'shared':
-                    #这个是没用到的
-                    from method.deformable_module.deformable_1d import DeformableAttention1D
-                    self.cross_branch_fusion_A1 = DeformableAttention1D(dim = config.hidden_size, downsample_factor = config.downsample_factor, offset_scale = 2, heads=self.config.deformable_heads, 
-                                                                        offset_groups=self.config.deformable_offset_groups, offset_kernel_size = config.deformable_offset_kernel_size,
-                                                                        offset_num=1)
-                    # self.cross_branch_fusion_B1 = DeformableAttention1D(dim = config.hidden_size, downsample_factor = 1, offset_scale = 2, heads=self.config.deformable_heads, 
-                    #                                                     offset_groups=self.config.deformable_offset_groups, offset_kernel_size = self.config.deformable_offset_kernel_size,
-                    #                                                     offset_num=1)
-                elif self.config.deformable_key == 'private':
-                    from method.deformable_module.deformable_1d_self import DeformableAttention1D
-                    self.cross_branch_fusion_A1 = DeformableAttention1D(dim = config.hidden_size, downsample_factor = 1, offset_scale = config.deformable_offset_scale, heads=self.config.deformable_heads, 
-                                                                        offset_groups=self.config.deformable_offset_groups, offset_kernel_size = self.config.deformable_offset_kernel_size,
-                                                                        offset_num=self.config.deformable_offset_num)
-                    # self.cross_branch_fusion_B1 = DeformableAttention1D(dim = config.hidden_size, downsample_factor = 1, offset_scale = 2, heads=self.config.deformable_heads, 
-                    #                                                     offset_groups=self.config.deformable_offset_groups, offset_kernel_size = self.config.deformable_offset_kernel_size,
-                    #                                                     offset_num=self.config.deformable_offset_num)
+                from method.deformable_module.deformable_1d_self import DeformableAttention1D
+                self.cross_branch_fusion_A1 = DeformableAttention1D(dim = config.hidden_size, downsample_factor = 1, offset_scale = config.deformable_offset_scale, heads=self.config.deformable_heads, 
+                                                                    offset_groups=self.config.deformable_offset_groups, offset_kernel_size = self.config.deformable_offset_kernel_size,
+                                                                    offset_num=self.config.deformable_offset_num, position=True if self.config.dataset_name == 'charades' else False)
+                 
             else:
                 self.cross_branch_fusion_A1 = TransformerFilter(config.hidden_size, config.cross_attn_head, dim_feedforward=2048, dropout=0.05, ret_att=True)
             if self.config.cross_attn_q=='double_q':#只有double的时候使用这个初始化，否则保持原来的
                 self.cross_branch_fusion_B1 = DeformableAttention1D(dim = config.hidden_size, downsample_factor = 1, offset_scale = 2, heads=self.config.deformable_heads, 
                                                                         offset_groups=self.config.deformable_offset_groups, offset_kernel_size = self.config.deformable_offset_kernel_size,
-                                                                        offset_num=self.config.deformable_offset_num)
+                                                                        offset_num=self.config.deformable_offset_num, position=True if self.config.dataset_name == 'charades' else False)
             else:
                 self.cross_branch_fusion_B1 = TransformerFilter(config.hidden_size, config.cross_attn_head, dim_feedforward=2048, dropout=0.05, ret_att=False)
 
-        if self.config.qformer>0:
-            self.qformer_selfa = TransformerFilter(config.hidden_size, 4, dim_feedforward=1024, dropout=0.05, ret_att=False)
-            self.qformer_a = TransformerFilter(config.hidden_size, 4, dim_feedforward=1024, dropout=0.05, ret_att=False)
-            self.qformer_selfb = TransformerFilter(config.hidden_size, 4, dim_feedforward=1024, dropout=0.05, ret_att=False)
-            self.qformer_b = TransformerFilter(config.hidden_size, 4, dim_feedforward=1024, dropout=0.05, ret_att=False)
-            self.learnable_action_queries = nn.Parameter(torch.randn(1, self.config.qformer, config.hidden_size))
-            self.learnable_object_queries = nn.Parameter(torch.randn(1, self.config.qformer, config.hidden_size))
-            self.learnable_queries_mask = torch.ones(1, self.config.qformer)
-        if self.config.learnable_text_prompt > 0:
-            self.prompt_class = Prompt_class(unified_text_prompt_length=self.config.learnable_text_prompt)
-            self.prompt_text_attn = TransformerFilter(config.hidden_size, 4, dim_feedforward=2048, dropout=0.05, ret_att=False)
-            self.prompt_class_action = Prompt_class(unified_text_prompt_length=self.config.learnable_text_prompt)
-            self.prompt_text_attn_action = TransformerFilter(config.hidden_size, 4, dim_feedforward=2048, dropout=0.05, ret_att=False)
         if self.config.phrase_action_branch:
             self.query_pos_embed_phrase = TrainablePositionalEncoding(max_position_embeddings=config.max_desc_l,
                                                            hidden_size=config.hidden_size, dropout=config.input_drop)
@@ -134,14 +98,10 @@ class MS_SL_Net(nn.Module):
             nn.Dropout(0.05),
             nn.Linear(config.hidden_size, config.hidden_size)
             )
-            if self.config.mamba > 0:
-                self.query_encoder_phrase = BertAttention(edict(mamba=config.mamba, hidden_size=config.hidden_size, intermediate_size=config.hidden_size,
-                                                    hidden_dropout_prob=config.drop, num_attention_heads=config.n_heads,
-                                                    attention_probs_dropout_prob=config.drop))
-            else:
-                self.query_encoder_phrase = BertAttention(edict(mamba=config.mamba, hidden_size=config.hidden_size, intermediate_size=config.hidden_size,
-                                                    hidden_dropout_prob=config.drop, num_attention_heads=config.n_heads,
-                                                    attention_probs_dropout_prob=config.drop))
+          
+            self.query_encoder_phrase = BertAttention(edict(hidden_size=config.hidden_size, intermediate_size=config.hidden_size,
+                                                hidden_dropout_prob=config.drop, num_attention_heads=config.n_heads,
+                                                attention_probs_dropout_prob=config.drop))
             
             self.frame_input_proj_action = LinearLayer(config.visual_flow_feat_dim if config.flow_feat else config.visual_feat_dim, config.hidden_size, layer_norm=True,
                                              dropout=config.input_drop, relu=True)
@@ -166,9 +126,6 @@ class MS_SL_Net(nn.Module):
         self.temp2.requires_grad = True
         
         if self.config.neg_query_loss in ['both', 'action', 'object']:
-            # if self.config.dataset_name == 'tvr':
-            #     self.roberta_model = RobertaModel.from_pretrained('/share/home/chenyaofo/project/chenchuanshen/tvr/output_bs_128/sub_query/roberta-base_tuned_model').cuda()
-            #     self.roberta_tokenizer = RobertaTokenizer.from_pretrained('/share/home/chenyaofo/project/chenchuanshen/tvr/output_bs_128/sub_query/roberta-base_tuned_model')
             if self.config.dataset_name != 'tvr':
                 self.roberta_model = RobertaModel.from_pretrained('./checkpoints/roberta-large').cuda()
                 self.roberta_tokenizer = RobertaTokenizer.from_pretrained('./checkpoints/roberta-large')
@@ -207,7 +164,7 @@ class MS_SL_Net(nn.Module):
         frame_flow_video_feat=batch['frame_video_flow_features']
         frame_flow_video_mask=batch['videos_flow_mask']
         final_neg_inputs = batch['final_neg_inputs']
-        # print(final_neg_inputs)
+       
         
         encoded_frame_feat = self.encode_context(
         frame_video_feat, frame_video_mask)
@@ -219,10 +176,8 @@ class MS_SL_Net(nn.Module):
             encoded_frame_feat_action = None
 
         if self.config.cross_branch_fusion:
-            #I3D作为Q clip作为key value
             if self.config.deformable_attn:
                 if self.config.cross_attn_q == 'i3d_q':
-                    # import ipdb;ipdb.set_trace()
                     cross_encoded_frame_feat = self.cross_branch_fusion_A1(encoded_frame_feat.transpose(1,2), encoded_frame_feat_action.transpose(1,2).detach())
                     encoded_frame_feat = cross_encoded_frame_feat.transpose(1,2)
                 elif self.config.cross_attn_q == 'clip_q':
@@ -377,20 +332,6 @@ class MS_SL_Net(nn.Module):
             query_mask: (N, L)
             return_modular_att: bool
         """
-        if self.config.learnable_text_prompt > 0:
-            if phrase_action_branch:
-                prompt_class = self.prompt_class_action
-                prompt_text_attn = self.prompt_text_attn_action
-            else:
-                prompt_class = self.prompt_class
-                prompt_text_attn = self.prompt_text_attn
-            unified_text_prompt = prompt_class.encode_prompt(batch_size=encoded_query.shape[0], device=encoded_query.device)
-            prefix_prompt = unified_text_prompt[:, :unified_text_prompt.shape[1]//2, :]  # bs*4*dim
-            suffix_prompt = unified_text_prompt[:, unified_text_prompt.shape[1]//2:, :]  # bs*4*dim
-            encoded_query = torch.cat((prefix_prompt, encoded_query, suffix_prompt), dim=1)  # bs*(20+4+4)*dim
-            query_mask = torch.cat((torch.ones(encoded_query.shape[0], unified_text_prompt.shape[1]//2, dtype=torch.bool, device=encoded_query.device), query_mask, 
-                                   torch.ones(encoded_query.shape[0], unified_text_prompt.shape[1]//2, dtype=torch.bool, device=encoded_query.device)), dim=1)  # bs*(20+4+4)
-            encoded_query,_ = prompt_text_attn(encoded_query, encoded_query,query_mask, query_mask)
         if phrase_action_branch:  
             modular_attention_scores = self.modular_vector_mapping_phrase(encoded_query)  # (N, L, 2 or 1)
         else:
@@ -431,7 +372,6 @@ class MS_SL_Net(nn.Module):
             else:
                 mapping_linear = self.mapping_linear[0]
             encoded_frame = mapping_linear(frame_feat)
-            # encoded_frame = ori_key
             normalized_encoded_frame = F.normalize(encoded_frame, dim=-1)
 
             normalized_query = F.normalize(query.squeeze(), dim=-1)
@@ -446,8 +386,8 @@ class MS_SL_Net(nn.Module):
                 bs_text = torch.arange(video_query.shape[0])
                 target = torch.zeros(torch.sum(neg_valid_mask), dtype=int).to(query.device)    
                 if self.config.max_type =='max_pos':
-                    text_best_seg_index = best_frame_indices[query_labels, bs_text] #取出每一个text所对应的视频里面 匹配分数最高的片段
-                    expand_normalized_encoded_frame = normalized_encoded_frame[query_labels] #将video进行拓展
+                    text_best_seg_index = best_frame_indices[query_labels, bs_text] 
+                    expand_normalized_encoded_frame = normalized_encoded_frame[query_labels]
                     
                     best_match_seg = expand_normalized_encoded_frame[bs_text, text_best_seg_index].unsqueeze(1)
                     
@@ -455,24 +395,9 @@ class MS_SL_Net(nn.Module):
 
                     pos_v2t_scores = best_frame_scores[query_labels, bs_text] #bs_text 1
                     total_v2t_scores = torch.cat([pos_v2t_scores.unsqueeze(1), neg_v2t_scores], dim=1)
-                    # print(f"pos_score : {total_v2t_scores[neg_valid_mask][:,0].mean()} neg_score:{total_v2t_scores[neg_valid_mask][:,1:].mean()}")
-                    # print(f"随机抽取score : {total_v2t_scores[neg_valid_mask][:3]}")
                     total_v2t_scores = total_v2t_scores[neg_valid_mask] * (self.temp2 if phrase_action_branch else self.temp)
                     
                     neg_query_loss = F.cross_entropy(total_v2t_scores, target, label_smoothing=self.config.neg_loss_label_smoothing) * self.config.neg_query_loss_weight
-                    
-                elif self.config.max_type == 'max_each':
-
-                    cat_query = torch.cat([normalized_query.unsqueeze(1), neg_video_query], dim=1) #bs n+1 dim
-                    cat_query = rearrange(cat_query, 'bs pos_neg dim -> (bs pos_neg) dim')
-                    max_frame_scores_posneg = torch.matmul(normalized_encoded_frame, cat_query.t())#.permute(2, 1, 0)
-                    max_frame_scores_posneg = rearrange(max_frame_scores_posneg, 'bs_v len_v (bs_t pos_neg)->bs_v len_v bs_t pos_neg', bs_t=query.shape[0])
-                    max_frame_scores_posneg = max_frame_scores_posneg.masked_fill(feat_mask.unsqueeze(-1).unsqueeze(-1).eq(0), -1e9)#.unsqueeze(1)
-                    best_segment_scores_posneg, best_segment_indices_posneg = torch.max(max_frame_scores_posneg, dim=1) #bs bs_t pos+neg
-                    best_segment_scores_posneg_matchvideo = best_segment_scores_posneg[query_labels, bs_text]
-                    total_v2t_scores = best_segment_scores_posneg_matchvideo[neg_valid_mask] * (self.temp2 if phrase_action_branch else self.temp)
-                    neg_query_loss = F.cross_entropy(total_v2t_scores, target, label_smoothing=self.config.neg_loss_label_smoothing) * self.config.neg_query_loss_weight
-                # print(f"neg_query_loss:{neg_query_loss}")
             else:
                 neg_query_loss = 0.0
                 
@@ -489,29 +414,26 @@ class MS_SL_Net(nn.Module):
         return best_frame_scores, best_frame_scores_, neg_query_loss
     
     def text_guided_attention_in_inference(self, video_query, frame_feat, feat_mask, phrase_action_branch=False):
-        start_time = time.time()
         key_linear = self.mapping_linear_phrase_action[0] if phrase_action_branch else self.mapping_linear[0]
         key = key_linear(frame_feat)
         normalized_encoded_frame = F.normalize(key, dim=-1)
         query = video_query.unsqueeze(0).repeat(key.shape[0], 1, 1)
 
         if self.config.best_frame_loss:
-            
-            # encoded_frame = key
+        
             normalized_query = F.normalize(query.squeeze(), dim=-1)
-            end_time = time.time()
             if len(normalized_query.shape) == 1:
                 normalized_query = normalized_query.unsqueeze(0).unsqueeze(0)
 
             best_frame_scores = torch.bmm(normalized_encoded_frame, normalized_query.transpose(1,2))
-            end_time = time.time()
+            
             best_frame_scores = best_frame_scores.masked_fill(feat_mask.unsqueeze(-1).eq(0), -1e9)#.unsqueeze(1)
-            end_time = time.time()
+            
             best_frame_scores, best_frame_indices = torch.max(best_frame_scores,
                                                     dim=1)  # (N, N) diagonal positions are positive pairs
-            end_time = time.time()
+            
             best_frame_scores = best_frame_scores.permute(1, 0)
-            end_time = time.time()
+            
             best_frame_scores_ = None
         else:
             best_frame_scores, best_frame_scores_ = None, None
@@ -528,7 +450,6 @@ class MS_SL_Net(nn.Module):
                                 neg_query_mask=None
                                 ):
 
-        #query feat q_len 10 512    video_feat  v_len 64 512 -> (q_len*10  v_len*64) -> (q_len 10 v_len 64) -> q_len v_len 64 -> q_len v_len
         if zeroshot_match:
             total_num_q, num_object, dim = query_feat.shape
             total_num_v, video_len, dim = video_feat.shape
@@ -571,7 +492,6 @@ class MS_SL_Net(nn.Module):
                         neg_query_mask = neg_query_mask[:, self.config.neg_action_num:, :]
                         neg_query_feat = neg_query_feat[:, self.config.neg_action_num:, :, :]
                 neg_valid_mask = torch.sum(torch.sum(neg_query_mask, dim=-1), dim=-1) > neg_query_mask.shape[1] * 3 #start hello end  #因为无效的时候长度为2
-                print(f"{torch.sum(neg_valid_mask==0)}|{torch.sum(neg_valid_mask==1)}")
                 neg_query_feat = rearrange(neg_query_feat, 'bsz num_neg max_len dim -> (bsz num_neg) max_len dim')
                 neg_query_mask = rearrange(neg_query_mask, 'bsz num_neg max_len -> (bsz num_neg) max_len')
                 neg_video_query, neg_encoded_query = self.encode_query(neg_query_feat, neg_query_mask, phrase_action_branch=phrase_action_branch)
@@ -669,7 +589,6 @@ class MS_SL_Net(nn.Module):
 
         sample_max_idx = min(sample_min_idx + self.config.hard_pool_size, bsz) if self.config.use_hard_negative else bsz
 
-        # sample_max_idx = 2
 
         # (N, )
         sampled_neg_score_indices = sorted_scores_indices[batch_indices, torch.randint(sample_min_idx, sample_max_idx,
@@ -688,11 +607,6 @@ class MS_SL_Net(nn.Module):
             pos_score: (N, ), torch.float32
             neg_score: (N, ), torch.float32
         """
-        # if pos_radio_loss_weight is not None or same_video_weight is not None: 
-        #     if pos_radio_loss_weight is not None:
-        #         weight_final = pos_radio_loss_weight
-        #         if same_video_weight is not None:
-        #             weight_final = weight_final * torch.logical_not(same_video_weight) #如果不是同一个视频的，那么就有效，否则无效
         if same_video_weight is not None:
             final_weight = same_video_weight + 1 #同一个视频的，降低权重
             return (torch.clamp(self.config.margin + neg_score - pos_score, min=0) * final_weight).sum() / final_weight.sum()

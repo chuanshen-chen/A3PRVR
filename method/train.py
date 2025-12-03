@@ -67,7 +67,7 @@ def train_epoch(model, train_loader, optimizer, opt, epoch_i, training=True):
     for batch_idx, batch in tqdm(enumerate(train_loader), desc="Training Iteration", total=num_training_examples):
         global_step = epoch_i * num_training_examples + batch_idx
         dataloading_time.update(time.time() - timer_dataloading)
-        print(f"dataloading_time:{dataloading_time.avg}")
+      
         timer_start = time.time()
         for k in batch.keys():
             if k != 'text_labels' and k != 'neg_text_labels' and k != 'text_labels_neg' and k != 'final_neg_inputs':
@@ -75,7 +75,7 @@ def train_epoch(model, train_loader, optimizer, opt, epoch_i, training=True):
 
         # model_inputs = prepare_batch_inputs(batch[1], opt.device, non_blocking=opt.pin_memory)
         prepare_inputs_time.update(time.time() - timer_start)
-        print(f"prepare_inputs_time:{prepare_inputs_time.avg}")
+       
         timer_start = time.time()
         feat_dict = model(batch=batch, 
                 epoch_now=epoch_i)
@@ -83,7 +83,7 @@ def train_epoch(model, train_loader, optimizer, opt, epoch_i, training=True):
         loss, loss_dict = model.get_all_loss(feat_dict)
         
         model_forward_time.update(time.time() - timer_start)
-        print(f"model_forward_time:{model_forward_time.avg}")
+       
         timer_start = time.time()
         if training:
             optimizer.zero_grad()
@@ -93,9 +93,6 @@ def train_epoch(model, train_loader, optimizer, opt, epoch_i, training=True):
             optimizer.step()
             model_backward_time.update(time.time() - timer_start)
 
-            # opt.writer.add_scalar("Train/LR", float(optimizer.param_groups[0]["lr"]), global_step)
-            # for k, v in loss_dict.items():
-            #     opt.writer.add_scalar("Train/{}".format(k), v, global_step)
 
         for k, v in loss_dict.items():
             loss_meters[k].update(float(v))
@@ -139,11 +136,10 @@ def train(model, train_dataset, val_video_dataset, val_text_dataset, opt):
         if torch.cuda.device_count() > 1:
             model = torch.nn.DataParallel(model)
             logger.info("Use multi GPU", opt.device_ids)
-            # model = torch.nn.DataParallel(model, device_ids=opt.device_ids)  # use multi GPU
         model.to(device)
 
     train_loader = DataLoader(dataset=train_dataset,batch_size=opt.bsz,shuffle=True,pin_memory=opt.pin_memory,
-                                num_workers=opt.num_workers,collate_fn=collate_train_event if opt.event_train else collate_train)
+                                num_workers=opt.num_workers,collate_fn=collate_train)
 
     # Prepare optimizer
     param_optimizer = list(model.named_parameters())
@@ -163,18 +159,15 @@ def train(model, train_dataset, val_video_dataset, val_text_dataset, opt):
         # debug_name = 'iccv_250513_changebig_test'
         if epoch_i > -1:
             # with torch.autograd.detect_anomaly(): 
-            if 1: 
+            if not opt.only_eval: 
                 train_epoch(model, train_loader, optimizer, opt, epoch_i, training=True)
-        #打断点的作用：可能会有 1 - 10 个 if else，是由参数控制的。
+
         
         with torch.no_grad():
-            if 0:
-                # checkpoint = '/share/home/chenyaofo/project/chenchuanshen/ms-sl_gt-main/results_aaai26/charades/aaai26_loss_实验3/26aaai_qdta_group8_num8_scale64_wo_pos_neg_num超参_12_loss_weight_0.05_seed_919_79.5/model.ckpt'
-                # checkpoint = '/share/home/chenyaofo/project/chenchuanshen/ms-sl_gt-main/results/charades/iccv_250512rebuttal_qdta_scale64_temp70_新实验/debug_302_80.0/model.ckpt'
-                checkpoint = '/share/home/chenyaofo/project/chenchuanshen/ms-sl_gt-main/results_aaai26/charades/26aaai_for_79.5better_250730_0311_linear/26aaai_for_79.5better_scale96_neg_num_8_w_loss_seed_666_82.3/model.ckpt'
+            if opt.only_eval:
+                checkpoint = opt.eval_ckpt
                 state = torch.load(checkpoint)
-                
-                model.load_state_dict(state['model'], strict=True)
+                model.load_state_dict(state['model'], strict=False)
            
             rsum = eval_epoch(model, val_video_dataset, val_text_dataset, opt,epoch = epoch_i)
 
@@ -212,7 +205,7 @@ def start_training(opt):
     text_feat_path = opt.text_feat_path
     
     train_dataset = Dataset4MS_SL(opt.caption_train_txt, text_feat_path, opt)
-    #a = 1 666666
+ 
     val_text_dataset = TxtDataSet4MS_SL(opt.caption_test_txt, text_feat_path, opt)
 
     val_video_ids_list = read_video_ids(opt.caption_test_txt)

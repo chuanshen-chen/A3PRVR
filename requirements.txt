@@ -1,0 +1,8 @@
+# torch==2.0.1
+# numpy==1.24.4
+# torchvision==0.15.2
+# transformers==4.46.1
+# easydict
+# timm
+# einops
+# h5py

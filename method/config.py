@@ -41,7 +41,7 @@ class BaseOptions(object):
                                  help="Proportion of training to perform linear learning rate warmup.")
         self.parser.add_argument("--wd", type=float, default=0.01, help="weight decay")
         self.parser.add_argument("--n_epoch", type=int, default=100, help="number of epochs to run")
-        self.parser.add_argument("--max_es_cnt", type=int, default=20,
+        self.parser.add_argument("--max_es_cnt", type=int, default=10,
                                  help="number of epochs to early stop, use -1 to disable early stop")
 
         self.parser.add_argument("--bsz", type=int, default=128, help="mini-batch size")
@@ -74,7 +74,6 @@ class BaseOptions(object):
         self.parser.add_argument("--visual_flow_feat_dim", type=int, default=1024, help="feature dim for query feature")
         self.parser.add_argument("--q_feat_size_other_branch", type=int, default=4096, help="feature dim for query feature")
 
-
         self.parser.add_argument("--no_norm_vfeat", action="store_true",
                                  help="Do not do normalization on video feat, use it only when using resnet_i3d feat")
         self.parser.add_argument("--no_norm_tfeat", action="store_true", help="Do not do normalization on text feat")
@@ -98,16 +97,8 @@ class BaseOptions(object):
         self.parser.add_argument('--use_sub', type=bool, default=False)
         self.parser.add_argument('--clip_scale_w', type=float, default=0.7)
         self.parser.add_argument('--frame_scale_w', type=float, default=0.3)
-        self.parser.add_argument('--cal_only3part', type=bool, default=False)
-        self.parser.add_argument('--replace_key_clip', type=bool, default=False)
-        self.parser.add_argument('--select_best_gt_clip', type=bool, default=False)
-        # self.parser.add_argument('--cal_motion_score', type=str, default='')
-        # self.parser.add_argument('--cal_motion_score', default=False, action='store_true')
-        # self.parser.add_argument('--loss_weight_t2v_clip', default=False, action='store_true')
-        self.parser.add_argument('--event_train', default=False, action='store_true')
-        self.parser.add_argument('--mixup_event', default=False, action='store_true')
+    
         self.parser.add_argument('--clip_branch', default=False, action='store_true')
-        self.parser.add_argument('--word_guided', default=False, action='store_true')
         self.parser.add_argument('--best_frame_guided', default=False, action='store_true')
         self.parser.add_argument('--cross_attn', default=False, action='store_true')
         
@@ -133,42 +124,18 @@ class BaseOptions(object):
         self.parser.add_argument('--neg_loss_label_smoothing', type=float, default=0.1)
         self.parser.add_argument('--text_feat_path', type=str, default='')
         self.parser.add_argument('--object_neg_path', type=str, default='')
-        
-        self.parser.add_argument('--kl_loss', default=False, action='store_true')
-        self.parser.add_argument('--div_loss', default=False, action='store_true')
         self.parser.add_argument('--best_frame_loss', default=False, action='store_true')
-        self.parser.add_argument('--global_video_loss', default=False, action='store_true')
         self.parser.add_argument('--topk', type=float, default=0.1)
-        self.parser.add_argument('--query_two_branch', default=False, action='store_true')
         self.parser.add_argument('--kl_2branch_loss', default=False, action='store_true')
         self.parser.add_argument('--phrase_action_branch', default=False, action='store_true')
-        self.parser.add_argument('--sentence_phrase_loss', default=False, action='store_true')
-        self.parser.add_argument('--intra_inter_loss', default=False, action='store_true')
-        self.parser.add_argument('--frame_diff', default=False, action='store_true')
         self.parser.add_argument('--flow_feat', default=False, action='store_true')
         self.parser.add_argument('--flow_feat_dim', type=int, default=1024)
-        self.parser.add_argument('--branch_div_loss', default=False, action='store_true')
-        self.parser.add_argument('--gaussian_global_video', default=False, action='store_true')
-        self.parser.add_argument('--VAC', default=False, action='store_true')
-        self.parser.add_argument('--atm_loss', default=False, action='store_true') 
-        self.parser.add_argument('--temporal_distributed_loss', default=False, action='store_true') 
-        self.parser.add_argument('--mamba', type=int, default=0) 
-        self.parser.add_argument('--conv1d', default=False, action='store_true') 
-        self.parser.add_argument('--event_prototype', default=False, action='store_true') 
-        self.parser.add_argument('--graph_construction', default=False, action='store_true') 
-        self.parser.add_argument('--sp_temporal_graph', type=str, default='both') 
-        self.parser.add_argument('--event_clusters', type=int, default=5) 
         self.parser.add_argument('--cross_branch_fusion', default=False, action='store_true') 
-        self.parser.add_argument('--clip_zero_shot', default=False, action='store_true') 
         self.parser.add_argument('--use_hard_negative', default=False, action='store_true') 
         self.parser.add_argument('--debug_mode', default=False, action='store_true') 
-        self.parser.add_argument('--qformer', type=int, default=0) 
-        self.parser.add_argument('--learnable_text_prompt', type=int, default=0) 
-        self.parser.add_argument('--eta', type=float, default=0.3) 
-        self.parser.add_argument('--fai', type=float, default=0.5) 
-        self.parser.add_argument('--tao', type=float, default=0.3) 
-        self.parser.add_argument('--miu', type=float, default=0.4)
-        
+        self.parser.add_argument('--only_eval', default=False, action='store_true') 
+        self.parser.add_argument('--eval_ckpt', type=str, default='') 
+    
     def display_save(self, opt):
         args = vars(opt)
         # Display settings
@@ -204,19 +171,17 @@ class BaseOptions(object):
             
             opt.results_dir = os.path.join(opt.root_path, "results_aaai26", opt.dataset_name,
                                            opt.exp_id, time.strftime("%Y_%m_%d_%H_%M_%S") if opt.description == '' else opt.description)
-            # opt.results_dir = os.path.join(opt.root_path, opt.dataset_name,
-            #                                "results", "-".join([opt.dset_name, opt.exp_id,
-            #                                                            time.strftime("%Y_%m_%d_%H_%M_%S")]))
+            
             mkdirp(opt.results_dir)
             import shutil
             if os.path.exists(os.path.join(opt.results_dir, 'train.py')) and 'debug' not in opt.results_dir:
-                raise FileExistsError(f"{opt.results_dir}已存在，无法复制。")
+                raise FileExistsError(f"{opt.results_dir} already exists")
             shutil.copy(os.path.join(opt.root_path, 'method','train.py'), opt.results_dir)
             shutil.copy(os.path.join(opt.root_path, 'method','data_provider.py'), opt.results_dir)
             shutil.copy(os.path.join(opt.root_path, 'method','model.py'), opt.results_dir)
             shutil.copy(os.path.join(opt.root_path, 'method','model_components.py'), opt.results_dir)
             shutil.copy(os.path.join(opt.root_path, 'method','deformable_module', 'deformable_1d_self.py'), opt.results_dir)
-            # save a copy of current code
+            
             code_dir = os.path.dirname(os.path.realpath(__file__))
             if 0:
                 code_zip_filename = os.path.join(opt.results_dir, "code.zip")

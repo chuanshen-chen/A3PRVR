@@ -26,69 +26,6 @@ def grid_sample_1d(feats, grid, *args, **kwargs):
     out = F.grid_sample(feats, grid, **kwargs)
     return rearrange(out, '... 1 -> ...')
 
-
-
-def grid_sample_1d_direct(feats, grid, mode='bilinear', padding_mode='zeros', align_corners=False):
-    """
-    直接执行1D网格采样，避免转换为2D的额外开销
-    
-    参数:
-        feats: 输入特征，形状为 [batch_size, channels, length]
-        grid: 采样网格，形状为 [batch_size, length_out]，值范围为 [-1, 1]
-        mode: 插值模式，'bilinear' 或 'nearest'
-        padding_mode: 填充模式，'zeros'、'border' 或 'reflection'
-        align_corners: 是否对齐角点
-        
-    返回:
-        采样结果，形状为 [batch_size, channels, length_out]
-    """
-    # 确保输入维度正确
-    assert feats.dim() == 3, "feats 必须是 [batch_size, channels, length] 形状"
-    assert grid.dim() == 2, "grid 必须是 [batch_size, length_out] 形状"
-    
-    batch_size, channels, in_length = feats.shape
-    _, out_length = grid.shape
-    
-    # 将grid从[-1,1]范围映射到[0, in_length-1]
-    if align_corners:
-        grid = (grid + 1) * (in_length - 1) / 2
-    else:
-        grid = (grid + 1) * in_length / 2 - 0.5
-    
-    # 计算两个最近的整数坐标点（1D中只有左右两个点）
-    grid_floor = torch.floor(grid).clamp(0, in_length - 1).long()  # 左侧点
-    grid_ceil = torch.ceil(grid).clamp(0, in_length - 1).long()    # 右侧点
-    
-    # 计算权重（距离比例）
-    weight_ceil = grid - grid_floor.float()  # x与左侧点的距离比例
-    weight_floor = 1 - weight_ceil           # x与右侧点的距离比例
-    
-    # 提取两个最近点的值
-    feats_floor = feats.gather(2, grid_floor.unsqueeze(1).expand(-1, channels, -1))
-    feats_ceil = feats.gather(2, grid_ceil.unsqueeze(1).expand(-1, channels, -1))
-    
-    # 应用线性插值（1D中的双线性插值实际上就是线性插值）
-    if mode == 'bilinear':
-        output = weight_floor.unsqueeze(1) * feats_floor + weight_ceil.unsqueeze(1) * feats_ceil
-    else:  # 'nearest'
-        mask = weight_ceil >= 0.5
-        output = torch.where(mask.unsqueeze(1), feats_ceil, feats_floor)
-    
-    # 处理填充模式
-    if padding_mode == 'zeros':
-        # 找出超出边界的位置
-        outside = (grid < 0) | (grid >= in_length)
-        # 将超出边界的位置设为0
-        output = output.masked_fill(outside.unsqueeze(1), 0)
-    elif padding_mode == 'border':
-        # 边界处理已经在clamp操作中完成
-        pass
-    elif padding_mode == 'reflection':
-        # 反射填充实现略复杂，这里省略
-        pass
-    
-    return output
-
 def normalize_grid(arange, dim = 1, out_dim = -1):
     # 实现与torch.nn.functional.grid_sample一致的归一化逻辑
     n = arange.shape[-1]
@@ -198,7 +135,6 @@ class DeformableAttention1D(nn.Module):
         self.offset_groups = offset_groups
 
         offset_dims = inner_dim // offset_groups
-        # print(f'offset_dims :{offset_dims}')
         self.offset_num = offset_num
         self.downsample_factor = downsample_factor
         
@@ -213,33 +149,25 @@ class DeformableAttention1D(nn.Module):
         
         self.dropout = nn.Dropout(dropout)
         ffn_dropout = 0.05
-        # self.mlp = 'linear'
-        self.mlp = 'linear'
-        if self.mlp == 'linear':
-            self.to_q = nn.Sequential(
-                nn.Linear(dim, inner_dim),
-                nn.ReLU(),
-                nn.Dropout(ffn_dropout),
-                nn.Linear(inner_dim, dim)
-            )
-            self.to_v = nn.Sequential(
-                nn.Linear(dim, inner_dim),
-                nn.ReLU(),
-                nn.Dropout(ffn_dropout),
-                nn.Linear(inner_dim, dim)
-            )
-            self.to_k = nn.Sequential(
-                nn.Linear(dim, inner_dim),
-                nn.ReLU(),
-                nn.Dropout(ffn_dropout),
-                nn.Linear(inner_dim, dim)
-            )
-        elif self.mlp =='conv1d': ##80.0跑出来的setting
-            self.rel_pos_bias = CPB(dim // 4, offset_groups = offset_groups, heads = heads, depth = 2, log_distance = cpb_log_distance)
-            self.to_q = nn.Conv1d(dim, inner_dim, 1, groups = offset_groups if group_queries else 1, bias = False)
-            self.to_k = nn.Conv1d(dim, inner_dim, 1, groups = offset_groups if group_key_values else 1, bias = False)
-            self.to_v = nn.Conv1d(dim, inner_dim, 1, groups = offset_groups if group_key_values else 1, bias = False)
-        # self.to_out = nn.Conv1d(inner_dim, dim, 1)
+       
+        self.to_q = nn.Sequential(
+            nn.Linear(dim, inner_dim),
+            nn.ReLU(),
+            nn.Dropout(ffn_dropout),
+            nn.Linear(inner_dim, dim)
+        )
+        self.to_v = nn.Sequential(
+            nn.Linear(dim, inner_dim),
+            nn.ReLU(),
+            nn.Dropout(ffn_dropout),
+            nn.Linear(inner_dim, dim)
+        )
+        self.to_k = nn.Sequential(
+            nn.Linear(dim, inner_dim),
+            nn.ReLU(),
+            nn.Dropout(ffn_dropout),
+            nn.Linear(inner_dim, dim)
+        )
 
         self.norm1 = nn.LayerNorm(dim)
         self.norm2 = nn.LayerNorm(dim)
@@ -251,8 +179,7 @@ class DeformableAttention1D(nn.Module):
         )
         self.scales_make_attn_diff = nn.Parameter(torch.tensor(70.0))  # 可学习的缩放
 
-        #新增温度参数，attn weight 拉开。 增大scale，offset 拉开。 新增position embedding。 三个77.0 -》 80+
-        self.position = True
+        self.position = position
         if self.position:
             self.pos_encoder_Q = nn.Sequential(
             nn.Embedding(128, 384),
@@ -286,20 +213,15 @@ class DeformableAttention1D(nn.Module):
             pos_encoding = rearrange(pos_encoding, '1 n d -> 1 d n')  # [1, d_model, n]
             kv_raw = kv_raw + pos_encoding
 
-        if self.mlp =='linear':
-            q = self.to_q(q_raw.transpose(1,2)).transpose(1,2)# bs dim len -> bs dim' len
-        else:
-            q = self.to_q(q_raw)
+        
+        q = self.to_q(q_raw.transpose(1,2)).transpose(1,2)# bs dim len -> bs dim' len
+      
         # calculate offsets - offset MLP shared across all groups
 
         group = lambda t: rearrange(t, 'b (g d) n -> (b g) d n', g = self.offset_groups)
 
         grouped_queries = group(q)
         offsets = self.to_offsets(grouped_queries) #len为4的时候预测一个偏移量
-        # print(offsets.shape)
-        # print(offsets[0,:,[20,60]])
-        # calculate grid + offsets
-
         grid = torch.arange(offsets.shape[-1], device = device) #原始位置
         vgrid = grid + offsets #偏移之后的位置
 
@@ -311,30 +233,15 @@ class DeformableAttention1D(nn.Module):
             rearrange(group(kv_raw).unsqueeze(1).repeat(1, self.offset_num, 1, 1), 'b num_k dim n_len-> (b num_k) dim n_len'), #把x分成多个组，维度拆分了
             vgrid_scaled,
         mode = 'bilinear', padding_mode = 'zeros', align_corners = False)  #根据偏移位置取出kv feats #,在这个过程下采样了？
-        #下面这个版本，复现不出来当时ckpt的80.1，上面的版本可以，说明有差距
-        # kv_feats = grid_sample_1d_direct(
-        #     rearrange(group(kv_raw).unsqueeze(1).repeat(1, self.offset_num, 1, 1), 'b num_k dim n_len-> (b num_k) dim n_len'), #把x分成多个组，维度拆分了
-        #     vgrid_scaled,
-        # mode = 'bilinear', padding_mode = 'zeros', align_corners = False)  #根据偏移位置取出kv feats #,在这个过程下采样了？
-        
-        # print(torch.max(torch.abs(kv_feats-kv_feats_1d)))
+      
 
         vgrid_scaled = rearrange(vgrid_scaled, '(b num_k) n -> b num_k n', num_k=self.offset_num) #把numk取出来
         kv_feats = rearrange(kv_feats, '(b num_k) dim n_len-> b num_k dim n_len', num_k=self.offset_num)
         kv_feats = rearrange(kv_feats, '(b g) num_k d n -> (b num_k) (g d) n', b = b) #取出之后，整合回来
         
-        # derive key / values
-        # kv_feats = rearrange(kv_feats, 'b num_k d n -> (b num_k) d n', b = b) #把numk放到bsz里面
-        # print(kv_feats.shape)
-        # import ipdb;ipdb.set_trace()
-        if self.mlp =='linear':
-            k, v = self.to_k(kv_feats.transpose(1,2)).transpose(1,2), self.to_v(kv_feats.transpose(1,2)).transpose(1,2) #linear to的时候需要先head和dim拼回来
-        else:
-            k, v = self.to_k(kv_feats), self.to_v(kv_feats)
-        # print(k.shape)
-        # exit()
-        # scale queries
-
+      
+        k, v = self.to_k(kv_feats.transpose(1,2)).transpose(1,2), self.to_v(kv_feats.transpose(1,2)).transpose(1,2) 
+    
         q = q * self.scale
 
         # split out heads
@@ -351,16 +258,7 @@ class DeformableAttention1D(nn.Module):
         scale = 1.0 / math.sqrt(headdim)
         
         sim = einsum('b h i d, b h j d -> b h i j', q, k) * scale #q bs 128   k bs 32
-        # print(sim.shape)
-        # relative positional bias
-
-        # seq_range = torch.arange(n, device = device)
-        # seq_scaled = normalize_grid(seq_range, dim = 0)
-        # rel_pos_bias = self.rel_pos_bias(seq_scaled, vgrid_scaled)
-        # sim = sim + rel_pos_bias
-
-        # numerical stability
-        # print(sim[[0, 555]][0])
+       
         sim = sim - sim.amax(dim = -1, keepdim = True).detach()
         
         # attention
@@ -368,9 +266,6 @@ class DeformableAttention1D(nn.Module):
         attn = (sim * self.scales_make_attn_diff).softmax(dim = -1)
         
         attn = self.dropout(attn)
-
-       
-
        
         out = einsum('b h i j, b h j d -> b h i d', attn, v)
         out = rearrange(out, 'b h n d -> b (h d) n')
