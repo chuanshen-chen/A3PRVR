@@ -1,4 +1,4 @@
-# A3PRVR
+# A3PRVR（2026AAAI）
 
 ## Environment Setup
 Strict version replication is not required. If version conflicts occur, install the versions supported by your local machine.
@@ -15,7 +15,9 @@ pip install -r requirements.txt
 
 ## Data Dependencies
 Only the **Charades-STA** dataset needs to be downloaded for reproduction (smaller in size than ActivityNet and TVR). Complete dependency data download:  
-[Data Download Link](link)
+[Charades-STA Data Download Link](https://huggingface.co/chadcs/A3PRVR_AAAI2026/tree/main/charades_dataset)
+[Activitynet Data Download Link](https://huggingface.co/chadcs/A3PRVR_AAAI2026/tree/main/anet_dataset)
+[TVR Data Download Link](https://huggingface.co/chadcs/A3PRVR_AAAI2026/tree/main/tvr_dataset)
 
 ## Pretrained Model Preparation (Optional)
 Only when you need to enable the **Hard negative sample generation module** (the loss function corresponding to Figure 4 in the paper), you must first download the RoBERTa pretrained weights:
@@ -60,7 +62,9 @@ The testing process reuses the training scripts, and only two additional paramet
 
 ### Testing Steps
 1. Download the pretrained weights (ckpt):  
-   [Model Checkpoint Download Link](download_link)
+   [Charades-STA Model Checkpoint Download Link](https://huggingface.co/chadcs/A3PRVR_AAAI2026/blob/main/charades.ckpt)
+   [ActivityNet Model Checkpoint Download Link](https://huggingface.co/chadcs/A3PRVR_AAAI2026/blob/main/anet.ckpt)
+   [TVR Model Checkpoint Download Link](https://huggingface.co/chadcs/A3PRVR_AAAI2026/blob/main/tvr.ckpt)
 2. Modify the training script and add the following parameters:
    - `only_eval`: Enable evaluation-only mode
    - `eval_ckpt="your_ckpt_path"`: Replace with the storage path of the downloaded ckpt file
